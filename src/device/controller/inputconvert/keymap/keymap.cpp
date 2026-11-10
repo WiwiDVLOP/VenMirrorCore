@@ -167,6 +167,7 @@ void KeyMap::loadKeyMap(const QString &json)
                 keyMapNode.data.click.keyNode.pos = getItemPos(node, "pos");
                 keyMapNode.data.click.switchMap = getItemBool(node, "switchMap");
                 keyMapNode.data.click.keyNode.androidKey = static_cast<AndroidKeycode>(getItemDouble(node, "androidKey"));
+                keyMapNode.comment = getItemString(node, "comment");
                 m_keyMapNodes.push_back(keyMapNode);
             } break;
             case KeyMap::KMT_CLICK_TWICE: {
@@ -188,6 +189,7 @@ void KeyMap::loadKeyMap(const QString &json)
                 keyMapNode.data.click.keyNode.pos = getItemPos(node, "pos");
                 keyMapNode.data.click.switchMap = getItemBool(node, "switchMap");
                 keyMapNode.data.click.keyNode.androidKey = static_cast<AndroidKeycode>(getItemDouble(node, "androidKey"));
+                keyMapNode.comment = getItemString(node, "comment");
                 m_keyMapNodes.push_back(keyMapNode);
             } break;
             case KeyMap::KMT_CLICK_MULTI: {
@@ -223,6 +225,7 @@ void KeyMap::loadKeyMap(const QString &json)
                     keyMapNode.data.clickMulti.keyNode.delayClickNodesCount++;
                 }
 
+                keyMapNode.comment = getItemString(node, "comment");
                 m_keyMapNodes.push_back(keyMapNode);
             } break;
             case KeyMap::KMT_STEER_WHEEL: {
@@ -260,6 +263,7 @@ void KeyMap::loadKeyMap(const QString &json)
                 keyMapNode.data.steerWheel.down = { downKey.first, downKey.second, QPointF(0, 0), QPointF(0, 0), getItemDouble(node, "downOffset") };
 
                 keyMapNode.data.steerWheel.centerPos = getItemPos(node, "centerPos");
+                keyMapNode.comment = getItemString(node, "comment");
                 m_idxSteerWheel = m_keyMapNodes.size();
                 m_keyMapNodes.push_back(keyMapNode);
             } break;
@@ -286,6 +290,7 @@ void KeyMap::loadKeyMap(const QString &json)
                     static_cast<quint32>(getItemDouble(node, "startDelay")) : 0;
                 keyMapNode.data.drag.dragSpeed = node.contains("dragSpeed") ? 
                     static_cast<float>(getItemDouble(node, "dragSpeed")) : 1.0f;
+                keyMapNode.comment = getItemString(node, "comment");
                 m_keyMapNodes.push_back(keyMapNode);
                 break;
             }
@@ -306,6 +311,7 @@ void KeyMap::loadKeyMap(const QString &json)
                 keyMapNode.data.androidKey.keyNode.type = key.first;
                 keyMapNode.data.androidKey.keyNode.key = key.second;
                 keyMapNode.data.androidKey.keyNode.androidKey = static_cast<AndroidKeycode>(getItemDouble(node, "androidKey"));
+                keyMapNode.comment = getItemString(node, "comment");
                 m_keyMapNodes.push_back(keyMapNode);
             } break;
             default:
@@ -350,6 +356,11 @@ QString KeyMap::saveKeyMap() const
         }
         QJsonObject nodeObj;
         nodeObj.insert("type", QString::fromUtf8(typeName));
+        // VenMirror v1.1.0: conservar el nombre del control en el
+        // round-trip (antes se perdía al guardar).
+        if (!node.comment.isEmpty()) {
+            nodeObj.insert("comment", node.comment);
+        }
         switch (node.type) {
         case KMT_CLICK:
         case KMT_CLICK_TWICE: {
@@ -515,6 +526,43 @@ bool KeyMap::setNodeKey(int index, ActionType type, int key)
     default:
         return false;
     }
+    makeReverseMap();
+    return true;
+}
+
+bool KeyMap::setSteerWheelKeys(int index, int up, int down, int left, int right)
+{
+    if (index < 0 || index >= m_keyMapNodes.size()) {
+        return false;
+    }
+    KeyMapNode &node = m_keyMapNodes[index];
+    if (KMT_STEER_WHEEL != node.type) {
+        return false;
+    }
+    // Las 4 teclas del joystick son siempre de teclado.
+    int keys[4] = { up, down, left, right };
+    for (int i = 0; i < 4; ++i) {
+        if (-1 == keys[i] || Qt::Key_unknown == keys[i]) {
+            return false;
+        }
+        // Ninguna dirección puede robar la tecla de cambio de modo.
+        if (AT_KEY == m_switchKey.type && keys[i] == m_switchKey.key) {
+            return false;
+        }
+        for (int j = i + 1; j < 4; ++j) {
+            if (keys[i] == keys[j]) {
+                return false;
+            }
+        }
+    }
+    node.data.steerWheel.up.type = AT_KEY;
+    node.data.steerWheel.up.key = up;
+    node.data.steerWheel.down.type = AT_KEY;
+    node.data.steerWheel.down.key = down;
+    node.data.steerWheel.left.type = AT_KEY;
+    node.data.steerWheel.left.key = left;
+    node.data.steerWheel.right.type = AT_KEY;
+    node.data.steerWheel.right.key = right;
     makeReverseMap();
     return true;
 }

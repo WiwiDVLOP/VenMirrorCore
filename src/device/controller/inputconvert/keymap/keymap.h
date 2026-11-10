@@ -70,6 +70,12 @@ public:
     struct KeyMapNode
     {
         KeyMapType type = KMT_INVALID;
+        // Nombre que ve el usuario para este control ("Atacar", "Evasión"...).
+        // Se lee del "comment" del JSON y se escribe al guardar; si está
+        // vacío, la lista del overlay muestra tipo + posición. (VenMirror
+        // v1.1.0: antes loadKeyMap ignoraba el comment y saveKeyMap lo
+        // perdía, así que el mapa de MHO perdía sus nombres al guardar.)
+        QString comment;
         union DATA
         {
             struct
@@ -123,6 +129,12 @@ public:
     void setSwitchKey(ActionType type, int key);
     bool setNodePos(int index, const QPointF &pos);
     bool setNodeKey(int index, ActionType type, int key);
+    // VenMirror v1.1.0: reasigna las 4 teclas de un joystick
+    // (KMT_STEER_WHEEL). Orden: arriba, abajo, izquierda, derecha.
+    // Rechaza índice o tipo inválido, tecla desconocida, la tecla de
+    // cambio de modo y duplicados entre las 4. Los duplicados contra
+    // OTROS controles los comprueba el editor antes de llamar aquí.
+    bool setSteerWheelKeys(int index, int up, int down, int left, int right);
     bool addNode(const KeyMapNode &node);
     bool removeNode(int index);
     bool setMouseMoveMap(const KeyMapNode &node);
