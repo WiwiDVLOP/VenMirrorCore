@@ -316,13 +316,297 @@ void KeyMap::loadKeyMap(const QString &json)
     }
     // this must be called after m_keyMapNodes is stable
     makeReverseMap();
-    qInfo() << "Script updated, current keymap mode:normal, Press ~ key to switch keymap mode";
+    qInfo() << QString("Script updated, current keymap mode:normal, Press %1 key to switch keymap mode").arg(keyName(m_switchKey.type, m_switchKey.key));
 
 parseError:
     if (!errorString.isEmpty()) {
         qWarning() << errorString;
     }
     return;
+}
+
+QString KeyMap::saveKeyMap() const
+{
+    QJsonObject rootObj;
+    rootObj.insert("switchKey", keyName(m_switchKey.type, m_switchKey.key));
+
+    auto posObj = [](const QPointF &pos) {
+        QJsonObject obj;
+        obj.insert("x", pos.x());
+        obj.insert("y", pos.y());
+        return obj;
+    };
+
+    QJsonArray keyMapNodes;
+    for (int i = 0; i < m_keyMapNodes.size(); ++i) {
+        const KeyMapNode &node = m_keyMapNodes[i];
+        // mouse move nodes are serialized only as the root mouseMoveMap below
+        if (KMT_MOUSE_MOVE == node.type) {
+            continue;
+        }
+        const char *typeName = m_metaEnumKeyMapType.valueToKey(node.type);
+        if (!typeName) {
+            continue;
+        }
+        QJsonObject nodeObj;
+        nodeObj.insert("type", QString::fromUtf8(typeName));
+        switch (node.type) {
+        case KMT_CLICK:
+        case KMT_CLICK_TWICE: {
+            // CLICK_TWICE shares the union storage with CLICK, so both are
+            // read from data.click (see loadKeyMap)
+            nodeObj.insert("key", keyName(node.data.click.keyNode.type, node.data.click.keyNode.key));
+            nodeObj.insert("pos", posObj(node.data.click.keyNode.pos));
+            nodeObj.insert("switchMap", node.data.click.switchMap);
+            nodeObj.insert("androidKey", static_cast<int>(node.data.click.keyNode.androidKey));
+        } break;
+        case KMT_CLICK_MULTI: {
+            nodeObj.insert("key", keyName(node.data.clickMulti.keyNode.type, node.data.clickMulti.keyNode.key));
+            QJsonArray clickNodes;
+            for (int j = 0; j < node.data.clickMulti.keyNode.delayClickNodesCount; ++j) {
+                const DelayClickNode &delayNode = node.data.clickMulti.keyNode.delayClickNodes[j];
+                QJsonObject delayObj;
+                delayObj.insert("delay", delayNode.delay);
+                delayObj.insert("pos", posObj(delayNode.pos));
+                clickNodes.append(delayObj);
+            }
+            nodeObj.insert("clickNodes", clickNodes);
+        } break;
+        case KMT_STEER_WHEEL: {
+            nodeObj.insert("leftKey", keyName(node.data.steerWheel.left.type, node.data.steerWheel.left.key));
+            nodeObj.insert("rightKey", keyName(node.data.steerWheel.right.type, node.data.steerWheel.right.key));
+            nodeObj.insert("upKey", keyName(node.data.steerWheel.up.type, node.data.steerWheel.up.key));
+            nodeObj.insert("downKey", keyName(node.data.steerWheel.down.type, node.data.steerWheel.down.key));
+            nodeObj.insert("leftOffset", node.data.steerWheel.left.extendOffset);
+            nodeObj.insert("rightOffset", node.data.steerWheel.right.extendOffset);
+            nodeObj.insert("upOffset", node.data.steerWheel.up.extendOffset);
+            nodeObj.insert("downOffset", node.data.steerWheel.down.extendOffset);
+            nodeObj.insert("centerPos", posObj(node.data.steerWheel.centerPos));
+        } break;
+        case KMT_DRAG: {
+            nodeObj.insert("key", keyName(node.data.drag.keyNode.type, node.data.drag.keyNode.key));
+            nodeObj.insert("startPos", posObj(node.data.drag.keyNode.pos));
+            nodeObj.insert("endPos", posObj(node.data.drag.keyNode.extendPos));
+            nodeObj.insert("startDelay", static_cast<int>(node.data.drag.startDelay));
+            nodeObj.insert("dragSpeed", static_cast<double>(node.data.drag.dragSpeed));
+        } break;
+        case KMT_ANDROID_KEY: {
+            nodeObj.insert("key", keyName(node.data.androidKey.keyNode.type, node.data.androidKey.keyNode.key));
+            nodeObj.insert("androidKey", static_cast<int>(node.data.androidKey.keyNode.androidKey));
+        } break;
+        default:
+            // KMT_INVALID and unknown types cannot be serialized; skip them
+            continue;
+        }
+        keyMapNodes.append(nodeObj);
+    }
+    rootObj.insert("keyMapNodes", keyMapNodes);
+
+    if (m_idxMouseMove != -1) {
+        const KeyMapNode &mouseMoveNode = m_keyMapNodes[m_idxMouseMove];
+        QJsonObject mouseMoveObj;
+        mouseMoveObj.insert("startPos", posObj(mouseMoveNode.data.mouseMove.startPos));
+        mouseMoveObj.insert("speedRatioX", static_cast<double>(mouseMoveNode.data.mouseMove.speedRatio.x()));
+        mouseMoveObj.insert("speedRatioY", static_cast<double>(mouseMoveNode.data.mouseMove.speedRatio.y()));
+        if (mouseMoveNode.data.mouseMove.smallEyes.key != Qt::Key_unknown) {
+            QJsonObject smallEyesObj;
+            smallEyesObj.insert("type", "KMT_CLICK");
+            smallEyesObj.insert("key", keyName(mouseMoveNode.data.mouseMove.smallEyes.type, mouseMoveNode.data.mouseMove.smallEyes.key));
+            smallEyesObj.insert("pos", posObj(mouseMoveNode.data.mouseMove.smallEyes.pos));
+            // loadKeyMap's checkForClick requires a "switchMap" bool on
+            // smallEyes, so it is written here (always false: the flag is not
+            // stored for smallEyes) to keep save -> load round-tripping
+            smallEyesObj.insert("switchMap", false);
+            mouseMoveObj.insert("smallEyes", smallEyesObj);
+        }
+        rootObj.insert("mouseMoveMap", mouseMoveObj);
+    }
+
+    QJsonDocument jsonDoc(rootObj);
+    return QString::fromUtf8(jsonDoc.toJson(QJsonDocument::Indented));
+}
+
+const QVector<KeyMap::KeyMapNode> &KeyMap::keyMapNodes() const
+{
+    return m_keyMapNodes;
+}
+
+void KeyMap::setSwitchKey(ActionType type, int key)
+{
+    if (AT_INVALID == type || -1 == key) {
+        return;
+    }
+    m_switchKey.type = type;
+    m_switchKey.key = key;
+}
+
+bool KeyMap::setNodePos(int index, const QPointF &pos)
+{
+    if (index < 0 || index >= m_keyMapNodes.size()) {
+        return false;
+    }
+    QPointF clampedPos(qBound(0.0, pos.x(), 1.0), qBound(0.0, pos.y(), 1.0));
+    KeyMapNode &node = m_keyMapNodes[index];
+    switch (node.type) {
+    case KMT_CLICK:
+    case KMT_CLICK_TWICE:
+        node.data.click.keyNode.pos = clampedPos;
+        break;
+    case KMT_CLICK_MULTI: {
+        if (node.data.clickMulti.keyNode.delayClickNodesCount <= 0) {
+            return false;
+        }
+        QPointF delta = clampedPos - node.data.clickMulti.keyNode.delayClickNodes[0].pos;
+        for (int i = 0; i < node.data.clickMulti.keyNode.delayClickNodesCount; ++i) {
+            node.data.clickMulti.keyNode.delayClickNodes[i].pos += delta;
+        }
+    } break;
+    case KMT_STEER_WHEEL:
+        node.data.steerWheel.centerPos = clampedPos;
+        break;
+    case KMT_DRAG: {
+        QPointF delta = clampedPos - node.data.drag.keyNode.pos;
+        node.data.drag.keyNode.pos = clampedPos;
+        node.data.drag.keyNode.extendPos += delta;
+    } break;
+    case KMT_MOUSE_MOVE:
+        node.data.mouseMove.startPos = clampedPos;
+        break;
+    case KMT_ANDROID_KEY:
+    default:
+        return false;
+    }
+    return true;
+}
+
+bool KeyMap::setNodeKey(int index, ActionType type, int key)
+{
+    if (index < 0 || index >= m_keyMapNodes.size()) {
+        return false;
+    }
+    if (AT_INVALID == type || -1 == key) {
+        return false;
+    }
+    // a node must never steal the mode-switch key
+    if (type == m_switchKey.type && key == m_switchKey.key) {
+        return false;
+    }
+    KeyMapNode &node = m_keyMapNodes[index];
+    switch (node.type) {
+    case KMT_CLICK:
+    case KMT_CLICK_TWICE:
+        node.data.click.keyNode.type = type;
+        node.data.click.keyNode.key = key;
+        break;
+    case KMT_CLICK_MULTI:
+        node.data.clickMulti.keyNode.type = type;
+        node.data.clickMulti.keyNode.key = key;
+        break;
+    case KMT_DRAG:
+        node.data.drag.keyNode.type = type;
+        node.data.drag.keyNode.key = key;
+        break;
+    case KMT_ANDROID_KEY:
+        node.data.androidKey.keyNode.type = type;
+        node.data.androidKey.keyNode.key = key;
+        break;
+    case KMT_STEER_WHEEL:
+    case KMT_MOUSE_MOVE:
+    default:
+        return false;
+    }
+    makeReverseMap();
+    return true;
+}
+
+bool KeyMap::addNode(const KeyMapNode &node)
+{
+    if (KMT_INVALID == node.type) {
+        return false;
+    }
+    // only one mouseMoveMap is allowed: replace the existing one instead of
+    // appending a second
+    if (KMT_MOUSE_MOVE == node.type && -1 != m_idxMouseMove) {
+        m_keyMapNodes[m_idxMouseMove] = node;
+        makeReverseMap();
+        return true;
+    }
+    if (KMT_STEER_WHEEL == node.type) {
+        m_idxSteerWheel = m_keyMapNodes.size();
+    } else if (KMT_MOUSE_MOVE == node.type) {
+        m_idxMouseMove = m_keyMapNodes.size();
+    }
+    m_keyMapNodes.push_back(node);
+    makeReverseMap();
+    return true;
+}
+
+bool KeyMap::removeNode(int index)
+{
+    if (index < 0 || index >= m_keyMapNodes.size()) {
+        return false;
+    }
+    m_keyMapNodes.removeAt(index);
+    m_idxSteerWheel = -1;
+    m_idxMouseMove = -1;
+    for (int i = 0; i < m_keyMapNodes.size(); ++i) {
+        if (KMT_STEER_WHEEL == m_keyMapNodes[i].type) {
+            m_idxSteerWheel = i;
+        } else if (KMT_MOUSE_MOVE == m_keyMapNodes[i].type) {
+            m_idxMouseMove = i;
+        }
+    }
+    makeReverseMap();
+    return true;
+}
+
+bool KeyMap::setMouseMoveMap(const KeyMapNode &node)
+{
+    if (KMT_MOUSE_MOVE != node.type) {
+        return false;
+    }
+    if (-1 != m_idxMouseMove) {
+        m_keyMapNodes[m_idxMouseMove] = node;
+    } else {
+        m_idxMouseMove = m_keyMapNodes.size();
+        m_keyMapNodes.push_back(node);
+    }
+    makeReverseMap();
+    return true;
+}
+
+bool KeyMap::removeMouseMoveMap()
+{
+    if (-1 == m_idxMouseMove) {
+        return false;
+    }
+    m_keyMapNodes.removeAt(m_idxMouseMove);
+    m_idxMouseMove = -1;
+    // removing a node shifts the indices after it; recompute the steer wheel
+    m_idxSteerWheel = -1;
+    for (int i = 0; i < m_keyMapNodes.size(); ++i) {
+        if (KMT_STEER_WHEEL == m_keyMapNodes[i].type) {
+            m_idxSteerWheel = i;
+        }
+    }
+    makeReverseMap();
+    return true;
+}
+
+QString KeyMap::keyName(ActionType type, int key) const
+{
+    const char *name = Q_NULLPTR;
+    if (AT_KEY == type) {
+        name = m_metaEnumKey.valueToKey(key);
+    } else if (AT_MOUSE == type) {
+        name = m_metaEnumMouseButtons.valueToKey(key);
+    } else {
+        return QString();
+    }
+    if (!name) {
+        return QString();
+    }
+    return QString::fromUtf8(name);
 }
 
 const KeyMap::KeyMapNode &KeyMap::getKeyMapNode(int key)

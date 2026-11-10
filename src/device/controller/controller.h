@@ -26,6 +26,10 @@ public:
 
     void updateScript(QString gameScript = "");
     bool isCurrentCustomKeymap();
+    // force the game/normal map without pressing the switch key; returns the
+    // resulting map state, or isCurrentCustomKeymap() when there is no game
+    // input converter
+    bool setGameMap(bool gameMap);
 
     void postGoBack();
     void postGoHome();

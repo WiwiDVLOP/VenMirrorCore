@@ -88,6 +88,15 @@ bool Controller::isCurrentCustomKeymap()
     return m_inputConvert->isCurrentCustomKeymap();
 }
 
+bool Controller::setGameMap(bool gameMap)
+{
+    InputConvertGame *convertGame = qobject_cast<InputConvertGame *>(m_inputConvert.data());
+    if (convertGame) {
+        return convertGame->setGameMap(gameMap);
+    }
+    return isCurrentCustomKeymap();
+}
+
 void Controller::postBackOrScreenOn(bool down)
 {
     ControlMsg *controlMsg = new ControlMsg(ControlMsg::CMT_BACK_OR_SCREEN_ON);

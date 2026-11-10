@@ -118,6 +118,16 @@ public:
     virtual ~KeyMap();
 
     void loadKeyMap(const QString &json);
+    QString saveKeyMap() const;
+    const QVector<KeyMapNode> &keyMapNodes() const;
+    void setSwitchKey(ActionType type, int key);
+    bool setNodePos(int index, const QPointF &pos);
+    bool setNodeKey(int index, ActionType type, int key);
+    bool addNode(const KeyMapNode &node);
+    bool removeNode(int index);
+    bool setMouseMoveMap(const KeyMapNode &node);
+    bool removeMouseMoveMap();
+    QString keyName(ActionType type, int key) const;
     const KeyMap::KeyMapNode &getKeyMapNode(int key);
     const KeyMap::KeyMapNode &getKeyMapNodeKey(int key);
     const KeyMap::KeyMapNode &getKeyMapNodeMouse(int key);

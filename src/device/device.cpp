@@ -850,6 +850,14 @@ bool Device::isCurrentCustomKeymap()
     return m_controller->isCurrentCustomKeymap();
 }
 
+void Device::setGameMap(bool gameMap)
+{
+    if (!m_controller) {
+        return;
+    }
+    m_controller->setGameMap(gameMap);
+}
+
 bool Device::saveFrame(int width, int height, uint8_t* dataRGB32)
 {
     if (!dataRGB32) {

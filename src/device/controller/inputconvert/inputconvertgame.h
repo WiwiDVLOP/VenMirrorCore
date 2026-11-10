@@ -19,6 +19,9 @@ public:
     virtual void wheelEvent(const QWheelEvent *from, const QSize &frameSize, const QSize &showSize);
     virtual void keyEvent(const QKeyEvent *from, const QSize &frameSize, const QSize &showSize);
     virtual bool isCurrentCustomKeymap();
+    // force the game/normal map without pressing the switch key; returns the
+    // resulting map state (true = custom/game map)
+    bool setGameMap(bool gameMap);
 
     void loadKeyMap(const QString &json);
 
