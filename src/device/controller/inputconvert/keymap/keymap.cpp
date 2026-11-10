@@ -49,6 +49,11 @@ void KeyMap::loadKeyMap(const QString &json)
         QJsonObject mouseMoveMap = getItemObject(rootObj, "mouseMoveMap");
         KeyMapNode keyMapNode;
         keyMapNode.type = KMT_MOUSE_MOVE;
+        // VenMirror v1.1.1: the union is not value-initialized (DATA()
+        // has an empty constructor), so set the canonical "no smallEyes"
+        // state here; otherwise saveKeyMap would see garbage in smallEyes
+        // and write a bogus smallEyes with an empty key.
+        keyMapNode.data.mouseMove.smallEyes = KeyNode(AT_INVALID, Qt::Key_unknown);
 
         bool have_speedRatio = false;
 
@@ -419,11 +424,23 @@ QString KeyMap::saveKeyMap() const
         mouseMoveObj.insert("startPos", posObj(mouseMoveNode.data.mouseMove.startPos));
         mouseMoveObj.insert("speedRatioX", static_cast<double>(mouseMoveNode.data.mouseMove.speedRatio.x()));
         mouseMoveObj.insert("speedRatioY", static_cast<double>(mouseMoveNode.data.mouseMove.speedRatio.y()));
-        if (mouseMoveNode.data.mouseMove.smallEyes.key != Qt::Key_unknown) {
+        // VenMirror v1.1.1: only write smallEyes when it has a real key.
+        // A mouseMoveMap loaded from a file without smallEyes leaves the
+        // union member uninitialized (DATA() has an empty constructor, so
+        // the KeyNode defaults do NOT apply): its key is 0, not
+        // Key_unknown, so the old test wrote a bogus smallEyes with an
+        // empty key, and the next load failed the WHOLE map
+        // (goto parseError in loadKeyMap). That is why the editor could
+        // never save any map with a camera node (MHO1): the round-trip
+        // validation refused it. keyName() is empty for an invalid key,
+        // so it is the exact test for "no smallEyes".
+        const KeyNode &smallEyes = mouseMoveNode.data.mouseMove.smallEyes;
+        const QString smallEyesKey = keyName(smallEyes.type, smallEyes.key);
+        if (!smallEyesKey.isEmpty()) {
             QJsonObject smallEyesObj;
             smallEyesObj.insert("type", "KMT_CLICK");
-            smallEyesObj.insert("key", keyName(mouseMoveNode.data.mouseMove.smallEyes.type, mouseMoveNode.data.mouseMove.smallEyes.key));
-            smallEyesObj.insert("pos", posObj(mouseMoveNode.data.mouseMove.smallEyes.pos));
+            smallEyesObj.insert("key", smallEyesKey);
+            smallEyesObj.insert("pos", posObj(smallEyes.pos));
             // loadKeyMap's checkForClick requires a "switchMap" bool on
             // smallEyes, so it is written here (always false: the flag is not
             // stored for smallEyes) to keep save -> load round-tripping
